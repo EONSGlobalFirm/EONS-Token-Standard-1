@@ -102,7 +102,7 @@ Events are emitted whenever block status changes.
 
 Beneficiary Registry
 
-SC-11 includes a built-in beneficiary registry.
+ETS-1 includes a built-in beneficiary registry.
 
 Each beneficiary stores:
 
@@ -141,7 +141,7 @@ removeAction(bytes32 actionId)
 isActionRegistered(bytes32 actionId)
 Asset Trace System
 
-SC-11 includes a trace logging framework for tracking asset-related events.
+ETS-1 includes a trace logging framework for tracking asset-related events.
 
 Solidity
 struct AssetTrace {
@@ -308,5 +308,5 @@ This project is licensed under the MIT License.
 Plain Text
 SPDX-License-Identifier: MIT
 
-SC-11 Mission
+ETS-1 Mission
 Create a transparent, traceable, fixed-supply digital asset standard that combines fungible token economics with governance, accountability, and verifiable asset history.
