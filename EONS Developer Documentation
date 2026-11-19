@@ -241,7 +241,7 @@ event AssetTrace(
     uint256 timestamp
 );
 
-EONS vs ERC-20
+                                        ERC-20 vs EONS
 Capability	   ERC-20	EONSFungible Token	✅	✅
 Transfers	                                ✅	✅
 Approvals	                                ✅	✅
