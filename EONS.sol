@@ -51,7 +51,7 @@ contract ETS-1 {
     modifier onlyOwner() {
         require(
             msg.sender == _owner,
-            "SC-11: Not authorized"
+            "ETS-1: Not authorized"
         );
         _;
     }
