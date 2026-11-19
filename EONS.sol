@@ -4,11 +4,11 @@ pragma solidity ^0.8.2;
 contract Config {
 }
 /**
- * @title SC-11 — Final Fungible Token Standard With Customizable Actions
- * @author Katascha White (Katascha.White@outlook.com)
+ * @title ETS-1 — Final Fungible Token Standard With Customizable Actions
+ * @author Katascha White (Katascha.White@outlook.com) @dev yahoo handle since 2003
  *
  * @notice
- * SC-11 is a fixed-supply SC-11-compatible fungible token
+ * ETS-1 is a fixed-supply ETS-1-compatible fungible token
  * standard for the EONS (E) token.
  *
  * Features:
@@ -59,7 +59,7 @@ contract SC11 {
     modifier notPaused() {
         require(
             !paused,
-            "SC-11: Contract paused"
+            "ETS-1: Contract paused"
         );
         _;
     }
@@ -97,7 +97,7 @@ contract SC11 {
     modifier notBlocked(address account) {
         require(
             !_blocked[account],
-            "SC-11: Address is blocked"
+            "ETS-1: Address is blocked"
         );
         _;
     }
@@ -158,7 +158,7 @@ contract SC11 {
 
         require(
             kataschaWallet != address(0),
-            "SC-11: Invalid Katascha wallet"
+            "ETS-1: Invalid Katascha wallet"
         );
 
         _owner = initialOwner;
@@ -174,7 +174,7 @@ contract SC11 {
         );
 
         _beneficiaries[1] = Beneficiary(
-            "Eon's Global Foundation",
+            "Eons Global Foundation",
             50,
             kataschaWallet
         );
@@ -185,7 +185,7 @@ contract SC11 {
 
         require(
             totalPercentage == 100,
-            "SC-11: Beneficiary total must equal 100"
+            "ETS-1: Beneficiary total must equal 100"
         );
 
         emit OwnershipTransferred(
@@ -265,7 +265,7 @@ contract SC11 {
     {
         require(
             spender != address(0),
-            "SC-11: Invalid spender"
+            "ETS-1: Invalid spender"
         );
 
         _allowances[msg.sender][spender] =
@@ -290,7 +290,7 @@ contract SC11 {
     {
         require(
             spender != address(0),
-            "SC-11: Invalid spender"
+            "ETS-1: Invalid spender"
         );
 
         uint256 newAllowance =
@@ -354,7 +354,7 @@ contract SC11 {
 
         require(
             currentAllowance >= amount,
-            "SC-11: Insufficient allowance"
+            "ETS-1: Insufficient allowance"
         );
 
         _transfer(from, to, amount);
@@ -402,7 +402,7 @@ contract SC11 {
 
         require(
             fromBalance >= amount,
-            "SC-11: Insufficient balance"
+            "ETS-1: Insufficient balance"
         );
 
         _enforceCircuitBreaker(from, to, amount);
@@ -434,7 +434,7 @@ contract SC11 {
     {
         require(
             newOwner != address(0),
-            "SC-11: Invalid new owner"
+            "ETS-1: Invalid new owner"
         );
 
         emit OwnershipTransferred(
@@ -468,7 +468,7 @@ contract SC11 {
     {
         require(
             account != address(0),
-            "SC-11: Invalid address"
+            "ETS-1: Invalid address"
         );
 
         require(
@@ -487,7 +487,7 @@ contract SC11 {
     {
         require(
             _blocked[account],
-            "SC-11: Address not blocked"
+            "ETS-1: Address not blocked"
         );
 
         _blocked[account] = false;
@@ -514,7 +514,7 @@ contract SC11 {
     {
         require(
             !paused,
-            "SC-11: Already paused"
+            "ETS-1: Already paused"
         );
 
         paused = true;
@@ -528,7 +528,7 @@ contract SC11 {
     {
         require(
             paused,
-            "SC-11: Not paused"
+            "ETS-1: Not paused"
         );
 
         paused = false;
@@ -641,12 +641,12 @@ contract SC11 {
     {
         require(
             actionId != bytes32(0),
-            "SC-11: Invalid action ID"
+            "ETS-1: Invalid action ID"
         );
 
         require(
             !_actions[actionId],
-            "SC-11: Action already registered"
+            "ETS-1: Action already registered"
         );
 
         _actions[actionId] = true;
@@ -665,7 +665,7 @@ contract SC11 {
     {
         require(
             _actions[actionId],
-            "SC-11: Action not registered"
+            "ETS-1: Action not registered"
         );
 
         _actions[actionId] = false;
@@ -703,7 +703,7 @@ contract SC11 {
     {
         require(
             index < 2,
-            "SC-11: Invalid beneficiary index"
+            "ETS-1: Invalid beneficiary index"
         );
 
         return _beneficiaries[index];
@@ -725,7 +725,7 @@ contract SC11 {
     {
         require(
             _actions[actionId],
-            "SC-11: Action not registered"
+            "ETS-1: Action not registered"
         );
 
         _assetTraces.push(AssetTrace(
