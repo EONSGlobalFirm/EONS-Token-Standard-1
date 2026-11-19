@@ -1,0 +1,295 @@
+EONS Developer Documentation v0.1
+Overview
+
+EONS (E) is a compliance-oriented digital asset standard designed to extend traditional fungible token functionality 
+with governance, traceability, beneficiary management, and programmable actions.
+
+Unlike conventional token standards that primarily focus on token transfers and approvals, EONS introduces native mechanisms for:
+
+Asset tracing
+Beneficiary allocation management
+Emergency controls
+Custom business actions
+Controller-based governance
+Compliance and audit support
+EONS Standard Goals
+
+The EONS ecosystem is designed around five principles:
+
+Transferability
+
+Assets can move between participants efficiently.
+
+Traceability
+
+Digital assets can be tracked throughout their lifecycle.
+
+Governance
+
+Authorized controllers can administer ecosystem functions.
+
+Recoverability
+
+Emergency controls exist for incident response.
+
+Extensibility
+
+Applications can register and execute custom actions.
+Token Information
+Field	ValueName	EONS
+Symbol	E
+Standard	EONS
+Decimals	18
+Supply Model	Fixed Supply
+Governance	Controller Managed
+
+Example:
+
+string public constant name = "EONS";
+string public constant symbol = "E";
+uint8 public constant decimals = 18;
+
+Core Functions
+Balance Retrieval
+function balanceOf(address account)
+    external
+    view
+    returns (uint256);
+
+
+Returns the balance of an account.
+
+Transfer
+function transfer(
+    address recipient,
+    uint256 amount
+)
+    external
+    returns (bool);
+
+
+Transfers assets between two accounts.
+
+Approval
+function approve(
+    address spender,
+    uint256 amount
+)
+    external
+    returns (bool);
+
+
+Authorizes another account to spend assets.
+
+Delegated Transfer
+function transferFrom(
+    address sender,
+    address recipient,
+    uint256 amount
+)
+    external
+    returns (bool);
+
+
+Transfers tokens on behalf of a user.
+
+Governance Layer
+Controller
+
+Every EONS implementation must expose a controller.
+
+function controller()
+    external
+    view
+    returns(address);
+
+
+Responsibilities:
+
+Manage governance
+Approve actions
+Execute emergency controls
+Register beneficiaries
+Emergency Operations
+Pause
+function pause()
+    external;
+
+
+Temporarily suspends transfer operations.
+
+Unpause
+function unpause()
+    external;
+
+
+Restores normal operation.
+
+Beneficiary Registry
+
+Beneficiaries represent designated recipients of future allocations or distributions.
+
+struct Beneficiary {
+    string name;
+    uint256 percentage;
+    address wallet;
+}
+
+
+Example:
+
+Beneficiary(
+    "Katascha White",
+    35,
+    0x123...
+);
+
+Register Beneficiary
+function addBeneficiary(
+    string calldata name,
+    uint256 percentage,
+    address wallet
+)
+    external;
+
+
+Requirements:
+
+Total allocation cannot exceed 100%.
+Wallet must not be zero address.
+Beneficiary names should be unique.
+Asset Trace System
+
+One of the major distinctions between EONS and ERC-20 is built-in traceability.
+
+Trace Event
+event AssetTrace(
+    bytes32 traceId,
+    string description,
+    address indexed actor,
+    uint256 timestamp
+);
+
+Record Trace
+function recordAssetTrace(
+    bytes32 traceId,
+    string calldata description
+)
+    external;
+
+
+Use Cases:
+
+Supply chain records
+Financial compliance
+Internal audits
+Real-world asset tracking
+Action Framework
+
+EONS supports custom actions.
+
+Traditional ERC-20 token standards do not provide this capability.
+
+Action Registration
+function setAction(
+    bytes32 actionId,
+    bool enabled
+)
+    external;
+
+Execute Action
+function executeCustomAction(
+    bytes32 actionId
+)
+    external;
+
+
+Examples:
+
+MintReward
+IssueCredential
+DistributeDividend
+IssueCertificate
+ValidateAsset
+
+Events
+Transfer Event
+event Transfer(
+    address indexed from,
+    address indexed to,
+    uint256 value
+);
+
+Approval Event
+event Approval(
+    address indexed owner,
+    address indexed spender,
+    uint256 value
+);
+
+Ownership Transfer
+event OwnershipTransferred(
+    address indexed previousOwner,
+    address indexed newOwner
+);
+
+Asset Trace
+event AssetTrace(
+    bytes32 traceId,
+    string description,
+    address actor,
+    uint256 timestamp
+);
+
+EONS vs ERC-20
+Capability	   ERC-20	EONSFungible Token	✅	✅
+Transfers	                                ✅	✅
+Approvals	                                ✅	✅
+Fixed Supply	                      Optional	✅
+Beneficiary Registry	                    ❌	✅
+Asset Traceability	                      ❌	✅
+Action Framework	                        ❌	✅
+Emergency Pause	                          ❌	✅
+Governance Controller	                    ❌	✅
+Compliance Support	                    Limited	✅
+Recommended Ecosystem Components
+EONS Core
+
+Protocol implementation.
+
+EONS Explorer
+
+View balances, traces, actions, and beneficiaries.
+
+EONS Wallet
+
+Native wallet supporting EONS actions.
+
+EONS Registry
+
+Directory of approved EONS contracts.
+
+EONS Foundation
+
+Governance and standards body.
+
+EONS SDK
+
+Suggested packages:
+
+eons-js
+eons-rust
+eons-python
+eons-go
+
+Future Standards
+ETS-1  EONS Fungible Assets
+ETS-2  EONS Governance
+ETS-3  EONS Identity
+ETS-4  EONS Traceability
+ETS-5  EONS Real-World Assets
+
+Mission Statement
+
+EONS provides a secure, traceable, and extensible digital asset framework designed to bridge
+decentralized finance, governance, compliance, and real-world asset management through a unified token standard.
