@@ -1,16 +1,16 @@
-# SmartContract-11
+# ETS-1
 Fungible Token Contract
-SC-11 Token Standard
+EONS Token Standard-1
 
 https://img.shields.io/badge/License-MIT-yellow.svg https://img.shields.io/badge/Solidity-0.8.20-blue.svg
 
 Overview
 
-SC-11 is a fixed-supply fungible token standard implementation for the EONS (E) ecosystem.
+ETS-1 is a fixed-supply fungible token standard implementation for the EONS (E) ecosystem.
 
 The standard extends traditional fungible token functionality with governance, beneficiary tracking, customizable actions, asset tracing, emergency pause controls, a circuit breaker system, and bot-blocking capabilities.
 
-SC-11 is designed to provide transparency, traceability, and operational safeguards while maintaining a fixed token supply.
+ETS-1 is designed to provide transparency, traceability, and operational safeguards while maintaining a fixed token supply.
 
 Token Information
 Property	ValueName	EONS
