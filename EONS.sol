@@ -23,7 +23,7 @@ contract Config {
  * - Asset trace logging
  */
 
-contract ETS-1 {
+contract ETS1 {
 
     // =============================================================
     // TOKEN DATA
