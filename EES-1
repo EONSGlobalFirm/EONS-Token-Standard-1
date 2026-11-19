@@ -1,0 +1,58 @@
+Based on the SC-11 EONS Token Standard shown in your open Solidity file, the key specifications are:
+
+EONS (E) Token Specifications
+Token Name: EONS
+Symbol: E
+Decimals: 18
+Total Supply: 100,000,000,000 E (100 billion tokens)
+Supply Model: Fixed supply
+Minting: Disabled after deployment
+Initial Distribution: Entire supply is created once during contract deployment and assigned to the owner wallet.
+Governance & Control
+Owner-controlled contract.
+Ownership can be transferred.
+Ownership can be renounced.
+Emergency pause/unpause capability.
+Security Features
+Address Blocklist for known bots or malicious wallets.
+Circuit Breaker that can:
+Pause the contract automatically when transfers exceed a configured threshold.
+Rate-limit transfers within a defined time window.
+Be reset by the owner after review.
+Transaction Features
+Standard token functions:
+transfer
+approve
+transferFrom
+allowance
+allowance increase/decrease functions
+Compatible with common fungible-token workflows.
+Custom Action Registry
+
+The standard includes a registry that allows creation of custom action identifiers (actionId) which can be registered, validated, and linked to asset-trace 
+events.
+
+Beneficiary System
+
+The contract stores two predefined beneficiaries:
+
+Katascha White (50%)
+Eon's Global Foundation (50%)
+
+The beneficiary percentages must total 100%.
+
+Asset Traceability
+
+A distinctive feature of SC-11 is asset tracing:
+
+Records sender, receiver, amount, timestamp, and action ID.
+Allows querying by address.
+Allows querying by action ID.
+Supports paginated retrieval.
+Can calculate total traced volume sent and received by an address.
+Burn Mechanism
+
+Importantly, the contract does not contain a burn function and does not automatically burn tokens during transfers.
+The supply remains fixed at 100 billion E unless the contract is modified in a future version.
+
+In short, SC-11 appears to be a fixed-supply, traceable, owner-governed fungible token standard with circuit-breaker security controls, beneficiary tracking, and asset-trace logging, rather than a deflationary or burn-based token model.
