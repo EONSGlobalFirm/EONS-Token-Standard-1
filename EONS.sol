@@ -33,6 +33,8 @@ contract ETS1 {
     string public constant symbol = "E";
     uint8 public constant decimals = 18;
 
+bytes32 public contentHash;
+
     uint256 public constant TOTAL_SUPPLY =
         100_000_000_000 * 10 ** 18;
 
@@ -124,6 +126,12 @@ contract ETS1 {
 
     AssetTrace[] private _assetTraces;
 
+mapping(address => uint256[]) private _tracesByAddress;
+mapping(bytes32 => uint256[]) private _tracesByAction;
+
+bytes32 private constant TRANSFER_ACTION =
+    keccak256("TOKEN_TRANSFER");
+
 
     // =============================================================
     // EVENTS
@@ -153,7 +161,7 @@ contract ETS1 {
 
         require(
             initialOwner != address(0),
-            "SC-11: Invalid owner"
+            "ETS-1: Invalid owner"
         );
 
         require(
@@ -202,6 +210,7 @@ contract ETS1 {
             initialOwner,
             TOTAL_SUPPLY
         );
+
     }
 
 
@@ -380,22 +389,22 @@ contract ETS1 {
     {
         require(
             from != address(0),
-            "SC-11: Invalid sender"
+            "ETS-1: Invalid sender"
         );
 
         require(
             to != address(0),
-            "SC-11: Invalid receiver"
+            "ETS-1: Invalid receiver"
         );
 
         require(
             !_blocked[from],
-            "SC-11: Sender is blocked"
+            "ETS-1: Sender is blocked"
         );
 
         require(
             !_blocked[to],
-            "SC-11: Receiver is blocked"
+            "ETS-1: Receiver is blocked"
         );
 
         uint256 fromBalance = _balances[from];
@@ -473,7 +482,7 @@ contract ETS1 {
 
         require(
             !_blocked[account],
-            "SC-11: Address already blocked"
+            "ETS-1: Address already blocked"
         );
 
         _blocked[account] = true;
@@ -912,4 +921,3 @@ contract ETS1 {
         }
     }
 }
-
