@@ -22,6 +22,24 @@ pragma solidity ^0.8.2;
  * - Asset trace history/logging
  */
 
+interface IERC20 {
+   function totalSupply() external view returns (uint256);
+   function balanceOf(address account) external view returns (uint256);
+   function transfer(address recipient, uint256 amount) external returns (bool);
+   function allowance(address owner, address spender) external view returns (uint256);
+   function approve(address spender, uint256 amount) external returns (bool);
+   function transferFrom(address sender, address recipient, uint256 amount) external returns (bool);
+
+   event Transfer(address indexed from, address indexed to, uint256 value);
+   event Approval(address indexed owner, address indexed spender, uint256 value);
+}
+
+interface IERC20Metadata is IERC20 {
+   function name() external view returns (string memory);
+   function symbol() external view returns (string memory);
+   function decimals() external view returns (uint8);
+}
+
 interface IETS1ERC20 {
     function transfer(address to, uint256 amount) external returns (bool);
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
@@ -44,13 +62,54 @@ interface IETS1PriceFeed {
 }
 
 contract ETS1 {
+    /*
+     * ETS-1 (EONS Token Standard 1)
+     *
+     * TOKEN FEATURES
+     * - Fixed Supply
+     * - ERC-20 Compatible
+     * - 100 Billion Maximum Supply
+     * - Ownership Transfer
+     * - Pause / Unpause
+     * - Address Blocklist
+     * - Allowances
+     * - Batch Transfers
+     * - Burn Function
+     * - Beneficiary System
+     * - Asset Tracking
+     * - Traceable Transfers
+     *
+     * SECURITY
+     * - Reentrancy Protection
+     * - Global Circuit Breaker
+     * - Personal Circuit Breaker
+     * - Emergency Pause
+     * - Oracle Validation
+     *
+     * COMMERCE
+     * - USDC Purchases
+     * - Native Coin Purchases
+     * - Automatic Revenue Splitting
+     * - Purchase History
+     *
+     * GOVERNANCE
+     * - Ownership Acceptance
+     * - Action Registry
+     * - Content Hash Registry
+     * - Beneficiary Management
+     *
+     * ANALYTICS
+     * - Asset Trace History
+     * - Purchase History
+     * - Supply Tracking
+     * - Holder Verification
+     * - Circulating Supply
+     */
+
     // =============================================================
     // TOKEN DATA
     // =============================================================
 
-    string public constant name = "EONS";
-    string public constant symbol = "E";
-    uint8 public constant decimals = 18;
     uint256 public constant TOTAL_SUPPLY = 100_000_000_000 * 10 ** 18;
 
     // Purchase price: 2 USDC for 1 whole EONS.
@@ -113,6 +172,7 @@ contract ETS1 {
     bool public paused;
 
     event Transfer(address indexed from, address indexed to, uint256 value);
+    event Burn(address indexed account, uint256 amount);
     event Approval(address indexed owner, address indexed spender, uint256 value);
     event OwnershipTransferStarted(address indexed currentOwner, address indexed pendingOwner);
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
@@ -516,12 +576,44 @@ contract ETS1 {
     // TOKEN FUNCTIONS
     // =============================================================
 
+    // =============================================================
+    // ERC-20 METADATA
+    // =============================================================
+
+    function burn(uint256 amount) external notPaused returns (bool) {
+        require(_balances[msg.sender] >= amount, "ETS-1: Insufficient balance");
+        _balances[msg.sender] -= amount;
+        emit Burn(msg.sender, amount);
+        emit Transfer(msg.sender, address(0), amount);
+        return true;
+    }
+
+    function name() external pure returns (string memory) {
+        return "EONS";
+    }
+
+    function symbol() external pure returns (string memory) {
+        return "E";
+    }
+
+    function decimals() external pure returns (uint8) {
+        return 18;
+    }
+
     function totalSupply() external pure returns (uint256) {
         return TOTAL_SUPPLY;
     }
 
+    function circulatingSupply() external view returns (uint256) {
+        return TOTAL_SUPPLY - _balances[address(this)];
+    }
+
     function balanceOf(address account) external view returns (uint256) {
         return _balances[account];
+    }
+
+    function isHolder(address account) external view returns (bool) {
+        return _balances[account] > 0;
     }
 
     function allowance(address tokenOwner, address spender) external view returns (uint256) {
@@ -530,6 +622,18 @@ contract ETS1 {
 
     function transfer(address to, uint256 amount) external notPaused returns (bool) {
         return _transfer(msg.sender, to, amount);
+    }
+
+    function batchTransfer(address[] calldata recipients, uint256[] calldata amounts)
+        external
+        notPaused
+        returns (bool)
+    {
+        require(recipients.length == amounts.length, "ETS-1: Array mismatch");
+        for (uint256 i = 0; i < recipients.length; i++) {
+            if (!_transfer(msg.sender, recipients[i], amounts[i])) return false;
+        }
+        return true;
     }
 
     function approve(address spender, uint256 amount) external notPaused returns (bool) {
