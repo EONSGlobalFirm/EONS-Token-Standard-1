@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.2;
 
-contract ETS1 {
-}
 /**
  * @title ETS-1 — EONS Token Standard 1 is a Universal Fungible Token Standard With Customizable Actions
  * @author Katascha White (Katascha.White@outlook.com) @dev yahoo handle since 2003
