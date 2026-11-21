@@ -16,7 +16,7 @@ contract EONS-TOKEN-STANDARD-1/ETS-1 {
  * - Entire supply created during deployment
  * - No minting after deployment
  * - Owner/controller identification
- * - Emergency pause mechanism
+ * - Emergency Global pause mechanism
  * - Circuit breaker (auto-pause on large or rate-limited transfers)access for all token holders
  * - Customizable action registry
  * - Beneficiary registry
