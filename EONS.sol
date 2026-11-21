@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.2;
 
-contract Config {
+contract EONS-TOKEN-STANDARD-1/ETS-1 {
 }
 /**
- * @title ETS-1 — Final Fungible Token Standard With Customizable Actions
+ * @title ETS-1 — Fungible Token Standard With Customizable Actions
  * @author Katascha White (Katascha.White@outlook.com) @dev yahoo handle since 2003
  *
  * @notice
@@ -17,7 +17,7 @@ contract Config {
  * - No minting after deployment
  * - Owner/controller identification
  * - Emergency pause mechanism
- * - Circuit breaker (auto-pause on large or rate-limited transfers)
+ * - Circuit breaker (auto-pause on large or rate-limited transfers)access for all token holders
  * - Customizable action registry
  * - Beneficiary registry
  * - Asset trace logging
@@ -514,37 +514,84 @@ bytes32 private constant TRANSFER_ACTION =
 
 
     // =============================================================
-    // PAUSE / UNPAUSE
+    // PERSONAL CIRCUIT BREAKER
     // =============================================================
 
-    function pause()
-        external
-        onlyOwner
-    {
-        require(
-            !paused,
-            "ETS-1: Already paused"
-        );
+   // =============================================================
+// PERSONAL CIRCUIT BREAKER
+// =============================================================
 
-        paused = true;
+mapping(address => bool) public circuitBreakerEnabled;
 
-        emit Paused(msg.sender);
-    }
+event PersonalCircuitBreakerEnabled(address indexed account);
+event PersonalCircuitBreakerDisabled(address indexed account);
 
-    function unpause()
-        external
-        onlyOwner
-    {
-        require(
-            paused,
-            "ETS-1: Not paused"
-        );
+function enableCircuitBreaker() external {
+    require(
+        _balances[msg.sender] > 0,
+        "No EONS tokens"
+    );
 
-        paused = false;
+    circuitBreakerEnabled[msg.sender] = true;
 
-        emit Unpaused(msg.sender);
-    }
+    emit PersonalCircuitBreakerEnabled(msg.sender);
+}
 
+function disableCircuitBreaker() external {
+    circuitBreakerEnabled[msg.sender] = false;
+
+    emit PersonalCircuitBreakerDisabled(msg.sender);
+}
+require(
+    !circuitBreakerEnabled[from],
+    "Transfers disabled by wallet circuit breaker"
+);
+if (
+    circuitBreakerThreshold > 0 &&
+    amount >= circuitBreakerThreshold
+) {
+    circuitBreakerEnabled[from] = true;
+
+    emit CircuitBreakerTriggered(
+        from,
+        to,
+        amount
+    );
+
+    return;
+}
+function _transfer(
+    address from,
+    address to,
+    uint256 amount
+)
+    internal
+{
+    require(from != address(0), "ETS-1: Invalid sender");
+    require(to != address(0), "ETS-1: Invalid receiver");
+
+    require(
+        !circuitBreakerEnabled[from],
+        "Transfers disabled by wallet circuit breaker"
+    );
+
+    require(!_blocked[from], "ETS-1: Sender is blocked");
+    require(!_blocked[to], "ETS-1: Receiver is blocked");
+
+    uint256 fromBalance = _balances[from];
+
+    require(
+        fromBalance >= amount,
+        "ETS-1: Insufficient balance"
+    );
+
+    _enforceCircuitBreaker(from, to, amount);
+
+    _balances[from] = fromBalance - amount;
+    _balances[to] += amount;
+
+    emit Transfer(from, to, amount);
+}
 
     // =============================================================
     // CIRCUIT BREAKER
