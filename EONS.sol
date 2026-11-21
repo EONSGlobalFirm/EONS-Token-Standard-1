@@ -29,7 +29,6 @@ contract ETS1 {
     // =============================================================
     // TOKEN DATA
     // =============================================================
-
     string public constant name = "EONS";
     string public constant symbol = "E";
     uint8 public constant decimals = 18;
@@ -37,7 +36,6 @@ contract ETS1 {
     uint256 public constant TOTAL_SUPPLY = 100_000_000_000 * 10 ** 18;
     bytes32 public contentHash;
 
-    // Keccak-256 is provided natively by Solidity; no external library is needed.
     mapping(address => uint256) private _balances;
     mapping(address => mapping(address => uint256)) private _allowances;
 
@@ -83,7 +81,6 @@ contract ETS1 {
     event Paused(address indexed account);
     event Unpaused(address indexed account);
     event ContentHashUpdated(bytes32 indexed oldHash, bytes32 indexed newHash);
-    event ContentDataHashed(bytes32 indexed dataHash, uint256 dataLength);
 
     // =============================================================
     // ADDRESS BLOCKLIST
@@ -259,22 +256,6 @@ contract ETS1 {
         return _actionNames[actionId];
     }
 
-    /** @notice Derives the canonical action ID for a readable action name. */
-    function actionIdForName(string calldata actionName) external pure returns (bytes32) {
-        return keccak256(bytes(actionName));
-    }
-
-    /** @notice Registers an action using the Keccak-256 hash of its name. */
-    function registerActionByName(string calldata actionName)
-        external
-        onlyOwner
-        returns (bytes32 actionId)
-    {
-        require(bytes(actionName).length > 0, "ETS-1: Empty action name");
-        actionId = keccak256(bytes(actionName));
-        _registerAction(actionId, actionName);
-    }
-
     // =============================================================
     // ASSET TRACE LOGGING
     // =============================================================
@@ -287,7 +268,6 @@ contract ETS1 {
         uint256 amount;
         uint256 timestamp;
         bytes32 actionId;
-        bytes32 recordHash;
     }
 
     AssetTrace[] private _assetTraces;
@@ -299,8 +279,7 @@ contract ETS1 {
         address indexed to,
         uint256 amount,
         bytes32 indexed actionId,
-        uint256 timestamp,
-        bytes32 recordHash
+        uint256 timestamp
     );
 
     function _recordAssetTrace(
@@ -312,42 +291,14 @@ contract ETS1 {
         uint256 traceIndex = _assetTraces.length;
         uint256 timestamp = block.timestamp;
 
-        bytes32 recordHash = keccak256(
-            abi.encode(block.chainid, address(this), traceIndex, from, to, amount, timestamp, actionId)
-        );
-        _assetTraces.push(AssetTrace(from, to, amount, timestamp, actionId, recordHash));
+        _assetTraces.push(AssetTrace(from, to, amount, timestamp, actionId));
         _tracesByAddress[from].push(traceIndex);
         if (to != from) {
             _tracesByAddress[to].push(traceIndex);
         }
         _tracesByAction[actionId].push(traceIndex);
 
-        emit AssetTraced(from, to, amount, actionId, timestamp, recordHash);
-    }
-
-    /** @notice Returns the stored Keccak-256 fingerprint for a trace entry. */
-    function getAssetTraceHash(uint256 index) external view returns (bytes32) {
-        require(index < _assetTraces.length, "ETS-1: Invalid trace index");
-        return _assetTraces[index].recordHash;
-    }
-
-    /** @notice Recomputes a trace fingerprint to check its stored record. */
-    function verifyAssetTrace(uint256 index) external view returns (bool) {
-        require(index < _assetTraces.length, "ETS-1: Invalid trace index");
-        AssetTrace storage trace = _assetTraces[index];
-        bytes32 expectedHash = keccak256(
-            abi.encode(
-                block.chainid,
-                address(this),
-                index,
-                trace.from,
-                trace.to,
-                trace.amount,
-                trace.timestamp,
-                trace.actionId
-            )
-        );
-        return expectedHash == trace.recordHash;
+        emit AssetTraced(from, to, amount, actionId, timestamp);
     }
 
     function logAssetTrace(
@@ -617,28 +568,6 @@ contract ETS1 {
         emit Unpaused(msg.sender);
     }
 
-    /** @notice Computes a Keccak-256 hash of arbitrary supplied content. */
-    function hashContent(bytes calldata data) external pure returns (bytes32) {
-        return keccak256(data);
-    }
-
-    /** @notice Checks whether supplied content matches a previously stored hash. */
-    function verifyContent(bytes calldata data, bytes32 expectedHash)
-        external
-        pure
-        returns (bool)
-    {
-        return keccak256(data) == expectedHash;
-    }
-
-    /** @notice Stores the Keccak-256 hash of supplied documentation or metadata. */
-    function setContentHashFromData(bytes calldata data) external onlyOwner {
-        bytes32 newHash = keccak256(data);
-        emit ContentHashUpdated(contentHash, newHash);
-        emit ContentDataHashed(newHash, data.length);
-        contentHash = newHash;
-    }
-
     function setContentHash(bytes32 newHash) external onlyOwner {
         emit ContentHashUpdated(contentHash, newHash);
         contentHash = newHash;
@@ -653,3 +582,4 @@ contract ETS1 {
         return _beneficiaries[index];
     }
 }
+
