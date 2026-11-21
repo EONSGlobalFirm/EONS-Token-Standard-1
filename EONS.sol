@@ -2,7 +2,7 @@
 pragma solidity ^0.8.2;
 
 /**
- * @title ETS-1 — EONS Token Standard 1 is a Universal Fungible Token Standard With Customizable Actions
+ * @title ETS-1 — EONS Token Standard 1 is a Fungible Token Standard With Customizable Actions
  * @author Katascha White (Katascha.White@outlook.com) @dev yahoo handle since 2003
  *EONS GLOBAL FIRM CONTRACT
  * @notice
