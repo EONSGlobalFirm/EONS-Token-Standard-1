@@ -21,18 +21,6 @@ pragma solidity ^0.8.2;
  * - Beneficiary registry
  * - Asset trace history/logging
  */
-*
- * ETS-1 — EONS Token Standard 1
- * Fixed-supply fungible token with ownership controls, circuit breakers,
- * trace history, configurable purchase payments, and beneficiary distributions.
- *
- * IMPORTANT:
- * - Configure the correct USDC contract and native/USD Chainlink-compatible
- *   feed for EACH network after deployment.
- * - The constructor's kataschaWallet argument is Katascha's payment wallet.
- * - The Eons Global Foundation wallet supplied by the user is initialized below.
- * - The owner must transfer EONS into this contract to fund sales inventory.
- */
 
 interface IETS1ERC20 {
     function transfer(address to, uint256 amount) external returns (bool);
@@ -71,7 +59,7 @@ contract ETS1 {
 
     // User-supplied Eons Global Foundation wallet.
     address public constant INITIAL_EONS_FOUNDATION_WALLET =
-        address(uint160(0x98b47db768ae6e85130ebf26683b1e31080510cb));
+        address(uint160(0x98B47DB768Ae6E85130EBF26683B1e31080510cb));
 
     bytes32 public contentHash;
 
