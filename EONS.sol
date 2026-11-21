@@ -86,6 +86,16 @@ bytes32 public contentHash;
 
     bool public paused;
 
+function pause() external onlyOwner {
+    paused = true;
+    emit Paused(msg.sender);
+}
+
+function unpause() external onlyOwner {
+    paused = false;
+    emit Unpaused(msg.sender);
+}
+
 
     // =============================================================
     // BOT BLOCKLIST
