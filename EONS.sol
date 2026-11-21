@@ -157,7 +157,7 @@ bytes32 private constant TRANSFER_ACTION =
     // =============================================================
 
     constructor(address kataschaWallet) {
-        address initialOwner = 0x69eC525Bc385d7a6E0cA22A638Ea9936bc1F0178;
+        address initialOwner = 0x2177a0b80304714ceFE6dD32Cc67befC5126C290;
 
         require(
             initialOwner != address(0),
