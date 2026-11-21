@@ -67,7 +67,6 @@ contract ETS1 {
      *
      * TOKEN FEATURES
      * - Fixed Supply
-     * - ERC-20 Compatible
      * - 100 Billion Maximum Supply
      * - Ownership Transfer
      * - Pause / Unpause
