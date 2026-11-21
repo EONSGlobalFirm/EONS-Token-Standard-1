@@ -6,7 +6,7 @@ contract EONS-TOKEN-STANDARD-1/ETS-1 {
 /**
  * @title ETS-1 — Fungible Token Standard With Customizable Actions
  * @author Katascha White (Katascha.White@outlook.com) @dev yahoo handle since 2003
- *
+ *EONS GLOBAL FIRM CONTRACT
  * @notice
  * ETS-1 is a fixed-supply ETS-1-compatible fungible token
  * standard for the EONS (E) token.
