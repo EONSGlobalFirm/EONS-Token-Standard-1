@@ -111,6 +111,7 @@ contract ETS1 {
     // =============================================================
 
     uint256 public constant TOTAL_SUPPLY = 100_000_000_000 * 10 ** 18;
+    uint256 private _totalSupply;
 
     // Purchase price: 2 USDC for 1 whole EONS.
     uint256 public constant USDC_PRICE_PER_EONS = 2;
@@ -124,6 +125,7 @@ contract ETS1 {
 
     mapping(address => uint256) private _balances;
     mapping(address => mapping(address => uint256)) private _allowances;
+    mapping(address => uint256) public burnedAmount;
 
     // =============================================================
     // OWNER DATA
@@ -373,9 +375,19 @@ contract ETS1 {
         bool manualRecord;
     }
 
+    struct TransferDispute {
+        uint256 traceId;
+        address challenger;
+        string reason;
+        bool resolved;
+        bool approved;
+    }
+
     AssetTrace[] private _assetTraces;
     mapping(address => uint256[]) private _tracesByAddress;
     mapping(bytes32 => uint256[]) private _tracesByAction;
+    TransferDispute[] private _transferDisputes;
+    mapping(uint256 => uint256) private _disputeIdByTracePlusOne;
 
     event AssetTraced(
         address indexed from,
@@ -385,6 +397,8 @@ contract ETS1 {
         uint256 timestamp,
         bool manualRecord
     );
+    event TransferChallenged(uint256 indexed disputeId, uint256 indexed traceId, address indexed challenger);
+    event DisputeResolved(uint256 indexed disputeId, bool approved, uint256 recoveredAmount);
 
     function _recordAssetTrace(address from, address to, uint256 amount, bytes32 actionId, bool manualRecord)
         internal
@@ -414,6 +428,52 @@ contract ETS1 {
     function getAssetTrace(uint256 index) external view returns (AssetTrace memory) {
         require(index < _assetTraces.length, "ETS-1: Invalid trace index");
         return _assetTraces[index];
+    }
+
+    function challengeTransfer(uint256 traceId, string calldata reason)
+        external
+        returns (uint256 disputeId)
+    {
+        require(traceId < _assetTraces.length, "ETS-1: Invalid trace index");
+        require(_assetTraces[traceId].actionId == TRANSFER_ACTION, "ETS-1: Trace is not a transfer");
+        require(_disputeIdByTracePlusOne[traceId] == 0, "ETS-1: Transfer already challenged");
+        require(bytes(reason).length > 0, "ETS-1: Empty dispute reason");
+
+        disputeId = _transferDisputes.length;
+        _transferDisputes.push(TransferDispute(traceId, msg.sender, reason, false, false));
+        _disputeIdByTracePlusOne[traceId] = disputeId + 1;
+        emit TransferChallenged(disputeId, traceId, msg.sender);
+    }
+
+    function approveDispute(uint256 disputeId) external onlyOwner returns (uint256 recoveredAmount) {
+        require(disputeId < _transferDisputes.length, "ETS-1: Invalid dispute ID");
+        TransferDispute storage dispute = _transferDisputes[disputeId];
+        require(!dispute.resolved, "ETS-1: Dispute already resolved");
+
+        AssetTrace storage trace = _assetTraces[dispute.traceId];
+        recoveredAmount = _balances[trace.to] < trace.amount ? _balances[trace.to] : trace.amount;
+        if (recoveredAmount > 0) {
+            require(_transfer(trace.to, trace.from, recoveredAmount), "ETS-1: Recovery blocked");
+        }
+
+        dispute.resolved = true;
+        dispute.approved = true;
+        emit DisputeResolved(disputeId, true, recoveredAmount);
+    }
+
+    function rejectDispute(uint256 disputeId) external onlyOwner {
+        require(disputeId < _transferDisputes.length, "ETS-1: Invalid dispute ID");
+        TransferDispute storage dispute = _transferDisputes[disputeId];
+        require(!dispute.resolved, "ETS-1: Dispute already resolved");
+
+        dispute.resolved = true;
+        dispute.approved = false;
+        emit DisputeResolved(disputeId, false, 0);
+    }
+
+    function getDispute(uint256 disputeId) external view returns (TransferDispute memory) {
+        require(disputeId < _transferDisputes.length, "ETS-1: Invalid dispute ID");
+        return _transferDisputes[disputeId];
     }
 
     function getAssetTracesForAddress(address account) external view returns (AssetTrace[] memory result) {
@@ -554,6 +614,7 @@ contract ETS1 {
         require(kataschaWallet != address(0), "ETS-1: Invalid Katascha wallet");
 
         _owner = initialOwner;
+        _totalSupply = TOTAL_SUPPLY;
         _balances[initialOwner] = TOTAL_SUPPLY;
 
         _beneficiaries[0] = Beneficiary("Katascha White", 35, kataschaWallet);
@@ -583,6 +644,8 @@ contract ETS1 {
     function burn(uint256 amount) external notPaused returns (bool) {
         require(_balances[msg.sender] >= amount, "ETS-1: Insufficient balance");
         _balances[msg.sender] -= amount;
+        _totalSupply -= amount;
+        burnedAmount[msg.sender] += amount;
         emit Burn(msg.sender, amount);
         emit Transfer(msg.sender, address(0), amount);
         return true;
@@ -600,12 +663,12 @@ contract ETS1 {
         return 18;
     }
 
-    function totalSupply() external pure returns (uint256) {
-        return TOTAL_SUPPLY;
+    function totalSupply() external view returns (uint256) {
+        return _totalSupply;
     }
 
     function circulatingSupply() external view returns (uint256) {
-        return TOTAL_SUPPLY - _balances[address(this)];
+        return _totalSupply - _balances[address(this)];
     }
 
     function balanceOf(address account) external view returns (uint256) {
@@ -998,6 +1061,12 @@ contract ETS1 {
     }
 
     function setContentHash(bytes32 newHash) external onlyOwner {
+        emit ContentHashUpdated(contentHash, newHash);
+        contentHash = newHash;
+    }
+
+    function setContent(string calldata content) external onlyOwner returns (bytes32 newHash) {
+        newHash = keccak256(bytes(content));
         emit ContentHashUpdated(contentHash, newHash);
         contentHash = newHash;
     }
