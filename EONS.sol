@@ -1,46 +1,28 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.2;
+pragma solidity ^0.8.34;
 
 /**
  * @title ETS-1 — EONS Token Standard 1 is a Fungible Token Standard With Customizable Actions
  * @author Katascha White (Katascha.White@outlook.com) @dev yahoo handle since 2003
  *EONS GLOBAL FIRM CONTRACT
  * @notice
- * ETS-1 is a fixed-supply ETS-1-compatible fungible token
- * standard for the EONS (E) token.
+ * Standard for the EONS (E) token-Powered by ETS-1
+ *Copyright 2026
  *
  * Features:
  * - Fixed supply of 100 billion E
  * - Entire supply created during deployment
+ * - Initial sales inventory assigned to the contract
  * - Transferable Ownership with acceptance
  * - No minting after deployment
  * - Owner/controller identification
  * - Emergency Global pause mechanism
  * - Circuit breaker (auto-pause on large or rate-limited transfers)access for all token holders
  * - Customizable action registry
- * - Beneficiary registry
  * - Asset trace history/logging
  */
 
-interface IERC20 {
-   function totalSupply() external view returns (uint256);
-   function balanceOf(address account) external view returns (uint256);
-   function transfer(address recipient, uint256 amount) external returns (bool);
-   function allowance(address owner, address spender) external view returns (uint256);
-   function approve(address spender, uint256 amount) external returns (bool);
-   function transferFrom(address sender, address recipient, uint256 amount) external returns (bool);
-
-   event Transfer(address indexed from, address indexed to, uint256 value);
-   event Approval(address indexed owner, address indexed spender, uint256 value);
-}
-
-interface IERC20Metadata is IERC20 {
-   function name() external view returns (string memory);
-   function symbol() external view returns (string memory);
-   function decimals() external view returns (uint8);
-}
-
-interface IETS1ERC20 {
+interface IETS1 {
     function transfer(address to, uint256 amount) external returns (bool);
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
     function balanceOf(address account) external view returns (uint256);
@@ -62,6 +44,9 @@ interface IETS1PriceFeed {
 }
 
 contract ETS1 {
+    // Compact replacement for long revert strings; conditions and control flow are unchanged.
+    error ETS1Error();
+
     /*
      * ETS-1 (EONS Token Standard 1)
      *
@@ -74,7 +59,6 @@ contract ETS1 {
      * - Allowances
      * - Batch Transfers
      * - Burn Function
-     * - Beneficiary System
      * - Asset Tracking
      * - Traceable Transfers
      *
@@ -95,7 +79,6 @@ contract ETS1 {
      * - Ownership Acceptance
      * - Action Registry
      * - Content Hash Registry
-     * - Beneficiary Management
      *
      * ANALYTICS
      * - Asset Trace History
@@ -110,15 +93,12 @@ contract ETS1 {
     // =============================================================
 
     uint256 public constant TOTAL_SUPPLY = 100_000_000_000 * 10 ** 18;
+    uint256 public constant INITIAL_SALES_INVENTORY = 100_000_000 * 10 ** 18;
     uint256 private _totalSupply;
 
     // Purchase price: 2 USDC for 1 whole EONS.
     uint256 public constant USDC_PRICE_PER_EONS = 2;
     uint256 private constant TOKEN_UNIT = 10 ** 18;
-
-    // User-supplied Eons Global Foundation wallet.
-    address public constant INITIAL_EONS_FOUNDATION_WALLET =
-        address(uint160(0x98B47DB768Ae6E85130EBF26683B1e31080510cb));
 
     bytes32 public contentHash;
 
@@ -134,37 +114,66 @@ contract ETS1 {
     address public pendingOwner;
 
     modifier onlyOwner() {
-        require(msg.sender == _owner, "ETS-1: Not authorized");
+        if (!(msg.sender == _owner)) revert ETS1Error();
         _;
     }
 
     modifier notPaused() {
-        require(!paused, "ETS-1: Contract paused");
+        if (!(!paused)) revert ETS1Error();
         _;
     }
 
+    // Reject state-changing calls from addresses marked by the owner.
+    // This is address-based blocking, not automatic bot detection.
+    modifier notBlockedCaller() {
+        if (!(!_blocked[msg.sender])) revert ETS1Error();
+        _;
+    }
+
+    // Automatically throttles rapid repeated calls without requiring the
+    // owner to identify or manually list an address first.
+    modifier automaticBotThrottle() {
+        BotActivity storage activity = _botActivity[msg.sender];
+
+        if (
+            activity.windowStart == 0 ||
+            block.timestamp >= activity.windowStart + BOT_WINDOW_SECONDS
+        ) {
+            activity.windowStart = block.timestamp;
+            activity.calls = 0;
+        }
+
+        if (!(activity.calls < BOT_MAX_CALLS_PER_WINDOW)) revert ETS1Error();
+
+        activity.calls += 1;
+        _;
+    }
+
+    function botActivity(address account)
+        external
+        view
+        returns (uint256 windowStart, uint256 calls, uint256 callsRemaining)
+    {
+        BotActivity storage activity = _botActivity[account];
+        if (
+            activity.windowStart == 0 ||
+            block.timestamp >= activity.windowStart + BOT_WINDOW_SECONDS
+        ) {
+            return (block.timestamp, 0, BOT_MAX_CALLS_PER_WINDOW);
+        }
+
+        uint256 remaining = BOT_MAX_CALLS_PER_WINDOW - activity.calls;
+        return (activity.windowStart, activity.calls, remaining);
+    }
+
     uint256 private _entered = 1;
+
     modifier nonReentrant() {
-        require(_entered == 1, "ETS-1: Reentrant call");
+        if (!(_entered == 1)) revert ETS1Error();
         _entered = 2;
         _;
         _entered = 1;
     }
-
-    // =============================================================
-    // BENEFICIARIES
-    // =============================================================
-
-    struct Beneficiary {
-        string name;
-        uint256 percentage;
-        address wallet;
-    }
-
-    Beneficiary[2] private _beneficiaries;
-
-    event BeneficiaryWalletUpdated(uint256 indexed index, address indexed oldWallet, address indexed newWallet);
-    event BeneficiaryDistribution(uint256 kataschaAmount, uint256 foundationAmount, address paymentAsset);
 
     // =============================================================
     // CONTRACT STATE / EVENTS
@@ -187,24 +196,55 @@ contract ETS1 {
 
     mapping(address => bool) private _blocked;
 
+    // Automatic anti-bot throttling: at most 5 protected calls per wallet
+    // in each rolling 60-second window. These are fixed safety limits.
+    uint256 public constant BOT_WINDOW_SECONDS = 60;
+    uint256 public constant BOT_MAX_CALLS_PER_WINDOW = 5;
+
+    struct BotActivity {
+        uint256 windowStart;
+        uint256 calls;
+    }
+
+    mapping(address => BotActivity) private _botActivity;
+
+    event BotActivityThrottled(address indexed account, uint256 windowStart, uint256 calls);
     event AddressBlocked(address indexed account);
     event AddressUnblocked(address indexed account);
 
     function blockAddress(address account) external onlyOwner {
-        require(account != address(0), "ETS-1: Invalid address");
-        require(!_blocked[account], "ETS-1: Address already blocked");
-        _blocked[account] = true;
+        _setAddressBlocked(account, true);
         emit AddressBlocked(account);
     }
 
     function unblockAddress(address account) external onlyOwner {
-        require(_blocked[account], "ETS-1: Address not blocked");
-        _blocked[account] = false;
+        _setAddressBlocked(account, false);
         emit AddressUnblocked(account);
     }
 
     function isBlocked(address account) external view returns (bool) {
         return _blocked[account];
+    }
+
+    // Bot controls use the existing owner-managed address blocklist.
+    function blockBot(address account) external onlyOwner {
+        _setAddressBlocked(account, true);
+        emit AddressBlocked(account);
+    }
+
+    function unblockBot(address account) external onlyOwner {
+        _setAddressBlocked(account, false);
+        emit AddressUnblocked(account);
+    }
+
+    function isBotBlocked(address account) external view returns (bool) {
+        return _blocked[account];
+    }
+
+    function _setAddressBlocked(address account, bool blocked) internal {
+        if (!(account != address(0))) revert ETS1Error();
+        if (blocked == _blocked[account]) revert ETS1Error();
+        _blocked[account] = blocked;
     }
 
     // =============================================================
@@ -216,15 +256,15 @@ contract ETS1 {
     event PersonalCircuitBreakerEnabled(address indexed account);
     event PersonalCircuitBreakerDisabled(address indexed account);
 
-    function enableCircuitBreaker() external {
-        require(_balances[msg.sender] > 0, "ETS-1: No EONS tokens");
-        require(!circuitBreakerEnabled[msg.sender], "ETS-1: Already enabled");
+    function enableCircuitBreaker() external notBlockedCaller {
+        if (!(_balances[msg.sender] > 0)) revert ETS1Error();
+        if (!(!circuitBreakerEnabled[msg.sender])) revert ETS1Error();
         circuitBreakerEnabled[msg.sender] = true;
         emit PersonalCircuitBreakerEnabled(msg.sender);
     }
 
-    function disableCircuitBreaker() external {
-        require(circuitBreakerEnabled[msg.sender], "ETS-1: Not enabled");
+    function disableCircuitBreaker() external notBlockedCaller {
+        if (!(circuitBreakerEnabled[msg.sender])) revert ETS1Error();
         circuitBreakerEnabled[msg.sender] = false;
         emit PersonalCircuitBreakerDisabled(msg.sender);
     }
@@ -259,7 +299,7 @@ contract ETS1 {
     }
 
     function resetCircuitBreaker() external onlyOwner {
-        require(circuitBreakerTripped, "ETS-1: Circuit breaker not tripped");
+        if (!(circuitBreakerTripped)) revert ETS1Error();
         address offender = lastCircuitBreakerSender;
         if (offender != address(0)) {
             _cbWindowStart[offender] = 0;
@@ -271,7 +311,7 @@ contract ETS1 {
     }
 
     function resetCircuitBreakerWalletWindow(address account) external onlyOwner {
-        require(account != address(0), "ETS-1: Invalid address");
+        if (!(account != address(0))) revert ETS1Error();
         _cbWindowStart[account] = 0;
         _cbWindowSpent[account] = 0;
         emit CircuitBreakerWalletWindowReset(account);
@@ -335,15 +375,15 @@ contract ETS1 {
     }
 
     function _registerAction(bytes32 actionId, string memory actionName) internal {
-        require(actionId != bytes32(0), "ETS-1: Invalid action ID");
-        require(!_actions[actionId], "ETS-1: Action already registered");
+        if (!(actionId != bytes32(0))) revert ETS1Error();
+        if (!(!_actions[actionId])) revert ETS1Error();
         _actions[actionId] = true;
         _actionNames[actionId] = actionName;
         emit ActionRegistered(actionId, actionName);
     }
 
     function removeAction(bytes32 actionId) external onlyOwner {
-        require(_actions[actionId], "ETS-1: Action not registered");
+        if (!(_actions[actionId])) revert ETS1Error();
         _actions[actionId] = false;
         delete _actionNames[actionId];
         emit ActionRemoved(actionId);
@@ -361,9 +401,9 @@ contract ETS1 {
     // ASSET TRACE LOGGING
     // =============================================================
 
-    bytes32 public constant TRANSFER_ACTION = keccak256("TOKEN_TRANSFER");
-    bytes32 public constant PURCHASE_ACTION = keccak256("TOKEN_PURCHASE");
-    bytes32 public constant MANUAL_TRACE_ACTION = keccak256("MANUAL_ASSET_TRACE");
+    bytes32 public constant TRANSFER_ACTION = bytes32("TOKEN_TRANSFER");
+    bytes32 public constant PURCHASE_ACTION = bytes32("TOKEN_PURCHASE");
+    bytes32 public constant MANUAL_TRACE_ACTION = bytes32("MANUAL_ASSET_TRACE");
 
     struct AssetTrace {
         address from;
@@ -414,9 +454,9 @@ contract ETS1 {
     }
 
     function logAssetTrace(address from, address to, uint256 amount, bytes32 actionId) external onlyOwner {
-        require(from != address(0), "ETS-1: Invalid trace sender");
-        require(to != address(0), "ETS-1: Invalid trace receiver");
-        require(_actions[actionId], "ETS-1: Action not registered");
+        if (!(from != address(0))) revert ETS1Error();
+        if (!(to != address(0))) revert ETS1Error();
+        if (!(_actions[actionId])) revert ETS1Error();
         _recordAssetTrace(from, to, amount, actionId, true);
     }
 
@@ -425,18 +465,19 @@ contract ETS1 {
     }
 
     function getAssetTrace(uint256 index) external view returns (AssetTrace memory) {
-        require(index < _assetTraces.length, "ETS-1: Invalid trace index");
+        if (!(index < _assetTraces.length)) revert ETS1Error();
         return _assetTraces[index];
     }
 
     function challengeTransfer(uint256 traceId, string calldata reason)
         external
+        notBlockedCaller
         returns (uint256 disputeId)
     {
-        require(traceId < _assetTraces.length, "ETS-1: Invalid trace index");
-        require(_assetTraces[traceId].actionId == TRANSFER_ACTION, "ETS-1: Trace is not a transfer");
-        require(_disputeIdByTracePlusOne[traceId] == 0, "ETS-1: Transfer already challenged");
-        require(bytes(reason).length > 0, "ETS-1: Empty dispute reason");
+        if (!(traceId < _assetTraces.length)) revert ETS1Error();
+        if (!(_assetTraces[traceId].actionId == TRANSFER_ACTION)) revert ETS1Error();
+        if (!(_disputeIdByTracePlusOne[traceId] == 0)) revert ETS1Error();
+        if (!(bytes(reason).length > 0)) revert ETS1Error();
 
         disputeId = _transferDisputes.length;
         _transferDisputes.push(TransferDispute(traceId, msg.sender, reason, false, false));
@@ -445,14 +486,14 @@ contract ETS1 {
     }
 
     function approveDispute(uint256 disputeId) external onlyOwner returns (uint256 recoveredAmount) {
-        require(disputeId < _transferDisputes.length, "ETS-1: Invalid dispute ID");
+        if (!(disputeId < _transferDisputes.length)) revert ETS1Error();
         TransferDispute storage dispute = _transferDisputes[disputeId];
-        require(!dispute.resolved, "ETS-1: Dispute already resolved");
+        if (!(!dispute.resolved)) revert ETS1Error();
 
         AssetTrace storage trace = _assetTraces[dispute.traceId];
         recoveredAmount = _balances[trace.to] < trace.amount ? _balances[trace.to] : trace.amount;
         if (recoveredAmount > 0) {
-            require(_transfer(trace.to, trace.from, recoveredAmount), "ETS-1: Recovery blocked");
+            if (!(_transfer(trace.to, trace.from, recoveredAmount))) revert ETS1Error();
         }
 
         dispute.resolved = true;
@@ -461,9 +502,9 @@ contract ETS1 {
     }
 
     function rejectDispute(uint256 disputeId) external onlyOwner {
-        require(disputeId < _transferDisputes.length, "ETS-1: Invalid dispute ID");
+        if (!(disputeId < _transferDisputes.length)) revert ETS1Error();
         TransferDispute storage dispute = _transferDisputes[disputeId];
-        require(!dispute.resolved, "ETS-1: Dispute already resolved");
+        if (!(!dispute.resolved)) revert ETS1Error();
 
         dispute.resolved = true;
         dispute.approved = false;
@@ -471,7 +512,7 @@ contract ETS1 {
     }
 
     function getDispute(uint256 disputeId) external view returns (TransferDispute memory) {
-        require(disputeId < _transferDisputes.length, "ETS-1: Invalid dispute ID");
+        if (!(disputeId < _transferDisputes.length)) revert ETS1Error();
         return _transferDisputes[disputeId];
     }
 
@@ -487,7 +528,7 @@ contract ETS1 {
         returns (AssetTrace[] memory result)
     {
         uint256[] storage indexes = _tracesByAddress[account];
-        require(offset <= indexes.length, "ETS-1: Offset out of range");
+        if (!(offset <= indexes.length)) revert ETS1Error();
         uint256 remaining = indexes.length - offset;
         uint256 count = limit < remaining ? limit : remaining;
         result = new AssetTrace[](count);
@@ -506,7 +547,7 @@ contract ETS1 {
         returns (AssetTrace[] memory result)
     {
         uint256[] storage indexes = _tracesByAction[actionId];
-        require(offset <= indexes.length, "ETS-1: Offset out of range");
+        if (!(offset <= indexes.length)) revert ETS1Error();
         uint256 remaining = indexes.length - offset;
         uint256 count = limit < remaining ? limit : remaining;
         result = new AssetTrace[](count);
@@ -518,7 +559,7 @@ contract ETS1 {
         view
         returns (AssetTrace[] memory result)
     {
-        require(offset <= _assetTraces.length, "ETS-1: Offset out of range");
+        if (!(offset <= _assetTraces.length)) revert ETS1Error();
         uint256 remaining = _assetTraces.length - offset;
         uint256 count = limit < remaining ? limit : remaining;
         result = new AssetTrace[](count);
@@ -578,8 +619,6 @@ contract ETS1 {
         address paymentAsset; // address(0) means native network currency
         uint256 eonsAmount;
         uint256 paymentAmount;
-        uint256 kataschaPayment;
-        uint256 foundationPayment;
         uint256 timestamp;
     }
 
@@ -594,42 +633,31 @@ contract ETS1 {
         address indexed paymentAsset,
         uint256 eonsAmount,
         uint256 paymentAmount,
-        uint256 kataschaPayment,
-        uint256 foundationPayment,
         uint256 indexed purchaseId
     );
     event NativeRefundCredited(address indexed account, uint256 amount);
     event NativeRefundWithdrawn(address indexed account, uint256 amount);
     event SalesInventoryDeposited(uint256 amount);
     event SalesInventoryWithdrawn(address indexed recipient, uint256 amount);
+    event USDCProceedsWithdrawn(address indexed recipient, uint256 amount);
+    event NativeProceedsWithdrawn(address indexed recipient, uint256 amount);
 
     // =============================================================
     // CONSTRUCTOR
     // =============================================================
 
-    constructor(address kataschaWallet) {
+    constructor() {
         address initialOwner = msg.sender;
-        require(initialOwner != address(0), "ETS-1: Invalid owner");
-        require(kataschaWallet != address(0), "ETS-1: Invalid Katascha wallet");
+        if (!(initialOwner != address(0))) revert ETS1Error();
 
         _owner = initialOwner;
         _totalSupply = TOTAL_SUPPLY;
-        _balances[initialOwner] = TOTAL_SUPPLY;
-
-        _beneficiaries[0] = Beneficiary("Katascha White", 35, kataschaWallet);
-        _beneficiaries[1] = Beneficiary(
-            "Eons Global Foundation",
-            65,
-            INITIAL_EONS_FOUNDATION_WALLET
-        );
-
-        require(
-            _beneficiaries[0].percentage + _beneficiaries[1].percentage == 100,
-            "ETS-1: Beneficiary total must equal 100"
-        );
+        _balances[initialOwner] = TOTAL_SUPPLY - INITIAL_SALES_INVENTORY;
+        _balances[address(this)] = INITIAL_SALES_INVENTORY;
 
         emit OwnershipTransferred(address(0), initialOwner);
-        emit Transfer(address(0), initialOwner, TOTAL_SUPPLY);
+        emit Transfer(address(0), initialOwner, _balances[initialOwner]);
+        emit Transfer(address(0), address(this), INITIAL_SALES_INVENTORY);
     }
 
     // =============================================================
@@ -640,8 +668,8 @@ contract ETS1 {
     // ERC-20 METADATA
     // =============================================================
 
-    function burn(uint256 amount) external notPaused returns (bool) {
-        require(_balances[msg.sender] >= amount, "ETS-1: Insufficient balance");
+    function burn(uint256 amount) external notBlockedCaller notPaused returns (bool) {
+        if (!(_balances[msg.sender] >= amount)) revert ETS1Error();
         _balances[msg.sender] -= amount;
         _totalSupply -= amount;
         burnedAmount[msg.sender] += amount;
@@ -682,50 +710,52 @@ contract ETS1 {
         return _allowances[tokenOwner][spender];
     }
 
-    function transfer(address to, uint256 amount) external notPaused returns (bool) {
+    function transfer(address to, uint256 amount) external automaticBotThrottle notPaused returns (bool) {
         return _transfer(msg.sender, to, amount);
     }
 
     function batchTransfer(address[] calldata recipients, uint256[] calldata amounts)
         external
+        notBlockedCaller
+        automaticBotThrottle
         notPaused
         returns (bool)
     {
-        require(recipients.length == amounts.length, "ETS-1: Array mismatch");
+        if (!(recipients.length == amounts.length)) revert ETS1Error();
         for (uint256 i = 0; i < recipients.length; i++) {
             if (!_transfer(msg.sender, recipients[i], amounts[i])) return false;
         }
         return true;
     }
 
-    function approve(address spender, uint256 amount) external notPaused returns (bool) {
-        require(spender != address(0), "ETS-1: Invalid spender");
+    function approve(address spender, uint256 amount) external notBlockedCaller notPaused returns (bool) {
+        if (!(spender != address(0))) revert ETS1Error();
         _allowances[msg.sender][spender] = amount;
         emit Approval(msg.sender, spender, amount);
         return true;
     }
 
-    function increaseAllowance(address spender, uint256 addedValue) external notPaused returns (bool) {
-        require(spender != address(0), "ETS-1: Invalid spender");
+    function increaseAllowance(address spender, uint256 addedValue) external notBlockedCaller notPaused returns (bool) {
+        if (!(spender != address(0))) revert ETS1Error();
         uint256 newAllowance = _allowances[msg.sender][spender] + addedValue;
         _allowances[msg.sender][spender] = newAllowance;
         emit Approval(msg.sender, spender, newAllowance);
         return true;
     }
 
-    function decreaseAllowance(address spender, uint256 subtractedValue) external notPaused returns (bool) {
-        require(spender != address(0), "ETS-1: Invalid spender");
+    function decreaseAllowance(address spender, uint256 subtractedValue) external notBlockedCaller notPaused returns (bool) {
+        if (!(spender != address(0))) revert ETS1Error();
         uint256 currentAllowance = _allowances[msg.sender][spender];
-        require(currentAllowance >= subtractedValue, "ETS-1: Allowance below zero");
+        if (!(currentAllowance >= subtractedValue)) revert ETS1Error();
         uint256 newAllowance = currentAllowance - subtractedValue;
         _allowances[msg.sender][spender] = newAllowance;
         emit Approval(msg.sender, spender, newAllowance);
         return true;
     }
 
-    function transferFrom(address from, address to, uint256 amount) external notPaused returns (bool) {
+    function transferFrom(address from, address to, uint256 amount) external automaticBotThrottle notPaused returns (bool) {
         uint256 currentAllowance = _allowances[from][msg.sender];
-        require(currentAllowance >= amount, "ETS-1: Insufficient allowance");
+        if (!(currentAllowance >= amount)) revert ETS1Error();
 
         bool transferred = _transfer(from, to, amount);
         if (!transferred) return false;
@@ -736,12 +766,12 @@ contract ETS1 {
     }
 
     function _transfer(address from, address to, uint256 amount) internal returns (bool) {
-        require(from != address(0), "ETS-1: Invalid sender");
-        require(to != address(0), "ETS-1: Invalid receiver");
-        require(!_blocked[from], "ETS-1: Sender is blocked");
-        require(!_blocked[to], "ETS-1: Receiver is blocked");
-        require(!circuitBreakerEnabled[from], "ETS-1: Sender wallet circuit breaker enabled");
-        require(_balances[from] >= amount, "ETS-1: Insufficient balance");
+        if (!(from != address(0))) revert ETS1Error();
+        if (!(to != address(0))) revert ETS1Error();
+        if (!(!_blocked[from])) revert ETS1Error();
+        if (!(!_blocked[to])) revert ETS1Error();
+        if (!(!circuitBreakerEnabled[from])) revert ETS1Error();
+        if (!(_balances[from] >= amount)) revert ETS1Error();
 
         if (!_enforceCircuitBreaker(from, to, amount)) return false;
 
@@ -757,33 +787,33 @@ contract ETS1 {
     // =============================================================
 
     function configureUSDC(address token) external onlyOwner {
-        require(token != address(0), "ETS-1: Invalid USDC address");
-        try IETS1ERC20(token).decimals() returns (uint8 tokenDecimals) {
-            require(tokenDecimals > 0 && tokenDecimals <= 18, "ETS-1: Unsupported USDC decimals");
+        if (!(token != address(0))) revert ETS1Error();
+        try IETS1(token).decimals() returns (uint8 tokenDecimals) {
+            if (!(tokenDecimals > 0 && tokenDecimals <= 18)) revert ETS1Error();
             usdcToken = token;
             usdcDecimals = tokenDecimals;
             emit USDCConfigured(token, tokenDecimals);
         } catch {
-            revert("ETS-1: Cannot read USDC decimals");
+            revert ETS1Error();
         }
     }
 
     function configureNativePriceFeed(address feed, uint256 maxAge) external onlyOwner {
-        require(feed != address(0), "ETS-1: Invalid price feed");
-        require(maxAge > 0, "ETS-1: Invalid price age");
+        if (!(feed != address(0))) revert ETS1Error();
+        if (!(maxAge > 0)) revert ETS1Error();
         try IETS1PriceFeed(feed).decimals() returns (uint8 feedDecimals) {
-            require(feedDecimals <= 18, "ETS-1: Unsupported feed decimals");
+            if (!(feedDecimals <= 18)) revert ETS1Error();
             nativeUsdPriceFeed = feed;
             nativeUsdFeedDecimals = feedDecimals;
             nativePriceMaxAge = maxAge;
             emit NativePriceFeedConfigured(feed, feedDecimals, maxAge);
         } catch {
-            revert("ETS-1: Cannot read feed decimals");
+            revert ETS1Error();
         }
     }
 
     function usdcCostForEons(uint256 eonsAmount) public view returns (uint256) {
-        require(usdcToken != address(0), "ETS-1: USDC not configured");
+        if (!(usdcToken != address(0))) revert ETS1Error();
         uint256 scale = 10 ** uint256(usdcDecimals);
         uint256 numerator = eonsAmount * USDC_PRICE_PER_EONS * scale;
         // Round up so fractional EONS cannot be purchased for zero/underpaid USDC.
@@ -791,7 +821,7 @@ contract ETS1 {
     }
 
     function quoteNativeForEons(uint256 eonsAmount) public view returns (uint256) {
-        require(nativeUsdPriceFeed != address(0), "ETS-1: Native price feed not configured");
+        if (!(nativeUsdPriceFeed != address(0))) revert ETS1Error();
         uint256 usdcCost = usdcCostForEons(eonsAmount);
 
         (
@@ -802,10 +832,10 @@ contract ETS1 {
             uint80 answeredInRound
         ) = IETS1PriceFeed(nativeUsdPriceFeed).latestRoundData();
 
-        require(answer > 0, "ETS-1: Invalid oracle price");
-        require(updatedAt != 0 && updatedAt <= block.timestamp, "ETS-1: Invalid oracle timestamp");
-        require(block.timestamp - updatedAt <= nativePriceMaxAge, "ETS-1: Stale oracle price");
-        require(answeredInRound >= roundId, "ETS-1: Incomplete oracle round");
+        if (!(answer > 0)) revert ETS1Error();
+        if (!(updatedAt != 0 && updatedAt <= block.timestamp)) revert ETS1Error();
+        if (!(block.timestamp - updatedAt <= nativePriceMaxAge)) revert ETS1Error();
+        if (!(answeredInRound >= roundId)) revert ETS1Error();
 
         // USDC base units -> USD -> native currency wei.
         uint256 exponent = uint256(nativeUsdFeedDecimals) + 18 - uint256(usdcDecimals);
@@ -818,8 +848,14 @@ contract ETS1 {
         return _balances[address(this)];
     }
 
-    function depositSalesInventory(uint256 amount) external notPaused returns (bool) {
-        require(amount > 0, "ETS-1: Zero inventory deposit");
+    function depositSalesInventory(uint256 amount)
+        external
+        notBlockedCaller
+        automaticBotThrottle
+        notPaused
+        returns (bool)
+    {
+        if (!(amount > 0)) revert ETS1Error();
         bool moved = _transfer(msg.sender, address(this), amount);
         if (moved) emit SalesInventoryDeposited(amount);
         return moved;
@@ -831,49 +867,81 @@ contract ETS1 {
         notPaused
         returns (bool)
     {
-        require(recipient != address(0), "ETS-1: Invalid recipient");
-        require(amount > 0, "ETS-1: Zero inventory withdrawal");
+        if (!(recipient != address(0))) revert ETS1Error();
+        if (!(amount > 0)) revert ETS1Error();
         bool moved = _transfer(address(this), recipient, amount);
         if (moved) emit SalesInventoryWithdrawn(recipient, amount);
         return moved;
     }
 
-    function buyWithUSDC(uint256 eonsAmount) external notPaused nonReentrant returns (bool) {
-        require(eonsAmount > 0, "ETS-1: Zero purchase");
-        require(usdcToken != address(0), "ETS-1: USDC not configured");
+    function withdrawUSDCProceeds(address recipient, uint256 amount)
+        external
+        onlyOwner
+        nonReentrant
+        returns (bool)
+    {
+        if (!(recipient != address(0))) revert ETS1Error();
+        if (!(amount > 0)) revert ETS1Error();
+        if (!(usdcToken != address(0))) revert ETS1Error();
+        _safeTokenTransfer(usdcToken, recipient, amount);
+        emit USDCProceedsWithdrawn(recipient, amount);
+        return true;
+    }
+
+    function withdrawNativeProceeds(address payable recipient, uint256 amount)
+        external
+        onlyOwner
+        nonReentrant
+        returns (bool)
+    {
+        if (!(recipient != address(0))) revert ETS1Error();
+        if (!(amount > 0)) revert ETS1Error();
+        if (!(address(this).balance >= amount)) revert ETS1Error();
+        _sendNative(recipient, amount);
+        emit NativeProceedsWithdrawn(recipient, amount);
+        return true;
+    }
+
+    function buyWithUSDC(uint256 eonsAmount)
+        external
+        notBlockedCaller
+        automaticBotThrottle
+        notPaused
+        nonReentrant
+        returns (bool)
+    {
+        if (!(eonsAmount > 0)) revert ETS1Error();
+        if (!(usdcToken != address(0))) revert ETS1Error();
         uint256 paymentAmount = usdcCostForEons(eonsAmount);
-        require(_balances[address(this)] >= eonsAmount, "ETS-1: Insufficient sales inventory");
+        if (!(_balances[address(this)] >= eonsAmount)) revert ETS1Error();
 
         // Move tokens first. If the breaker trips, no payment is collected.
         if (!_transfer(address(this), msg.sender, eonsAmount)) return false;
 
-        uint256 balanceBefore = IETS1ERC20(usdcToken).balanceOf(address(this));
+        uint256 balanceBefore = IETS1(usdcToken).balanceOf(address(this));
         _safeTokenTransferFrom(usdcToken, msg.sender, address(this), paymentAmount);
-        uint256 balanceAfter = IETS1ERC20(usdcToken).balanceOf(address(this));
-        require(balanceAfter - balanceBefore == paymentAmount, "ETS-1: Fee-on-transfer USDC unsupported");
+        uint256 balanceAfter = IETS1(usdcToken).balanceOf(address(this));
+        if (!(balanceAfter - balanceBefore == paymentAmount)) revert ETS1Error();
 
-        (uint256 kataschaAmount, uint256 foundationAmount) = _splitPayment(paymentAmount);
-        _safeTokenTransfer(usdcToken, _beneficiaries[0].wallet, kataschaAmount);
-        _safeTokenTransfer(usdcToken, _beneficiaries[1].wallet, foundationAmount);
-
-        _recordPurchase(msg.sender, usdcToken, eonsAmount, paymentAmount, kataschaAmount, foundationAmount);
-        emit BeneficiaryDistribution(kataschaAmount, foundationAmount, usdcToken);
+        _recordPurchase(msg.sender, usdcToken, eonsAmount, paymentAmount);
         return true;
     }
 
     function buyWithNative(uint256 eonsAmount, uint256 maxNativePayment)
         external
         payable
+        notBlockedCaller
+        automaticBotThrottle
         notPaused
         nonReentrant
         returns (bool)
     {
-        require(eonsAmount > 0, "ETS-1: Zero purchase");
-        require(_balances[address(this)] >= eonsAmount, "ETS-1: Insufficient sales inventory");
+        if (!(eonsAmount > 0)) revert ETS1Error();
+        if (!(_balances[address(this)] >= eonsAmount)) revert ETS1Error();
 
         uint256 paymentAmount = quoteNativeForEons(eonsAmount);
-        require(paymentAmount <= maxNativePayment, "ETS-1: Native quote exceeds maximum");
-        require(msg.value >= paymentAmount, "ETS-1: Insufficient native payment");
+        if (!(paymentAmount <= maxNativePayment)) revert ETS1Error();
+        if (!(msg.value >= paymentAmount)) revert ETS1Error();
 
         if (!_transfer(address(this), msg.sender, eonsAmount)) {
             nativeRefundCredit[msg.sender] += msg.value;
@@ -881,20 +949,12 @@ contract ETS1 {
             return false;
         }
 
-        (uint256 kataschaAmount, uint256 foundationAmount) = _splitPayment(paymentAmount);
-
-        _sendNative(_beneficiaries[0].wallet, kataschaAmount);
-        _sendNative(_beneficiaries[1].wallet, foundationAmount);
-
         _recordPurchase(
             msg.sender,
             address(0),
             eonsAmount,
-            paymentAmount,
-            kataschaAmount,
-            foundationAmount
+            paymentAmount
         );
-        emit BeneficiaryDistribution(kataschaAmount, foundationAmount, address(0));
 
         uint256 excess = msg.value - paymentAmount;
         if (excess > 0) {
@@ -907,48 +967,37 @@ contract ETS1 {
         return true;
     }
 
-    function withdrawNativeRefund() external nonReentrant {
+    function withdrawNativeRefund() external notBlockedCaller nonReentrant {
         uint256 amount = nativeRefundCredit[msg.sender];
-        require(amount > 0, "ETS-1: No refund credit");
+        if (!(amount > 0)) revert ETS1Error();
         nativeRefundCredit[msg.sender] = 0;
         (bool success, ) = payable(msg.sender).call{value: amount}("");
-        require(success, "ETS-1: Refund withdrawal failed");
+        if (!(success)) revert ETS1Error();
         emit NativeRefundWithdrawn(msg.sender, amount);
-    }
-
-    function _splitPayment(uint256 paymentAmount)
-        internal
-        view
-        returns (uint256 kataschaAmount, uint256 foundationAmount)
-    {
-        kataschaAmount = (paymentAmount * _beneficiaries[0].percentage) / 100;
-        foundationAmount = paymentAmount - kataschaAmount;
     }
 
     function _sendNative(address recipient, uint256 amount) internal {
         (bool success, ) = payable(recipient).call{value: amount}("");
-        require(success, "ETS-1: Beneficiary native payment failed");
+        if (!(success)) revert ETS1Error();
     }
 
     function _safeTokenTransfer(address token, address to, uint256 amount) internal {
         (bool success, bytes memory data) =
-            token.call(abi.encodeWithSelector(IETS1ERC20.transfer.selector, to, amount));
-        require(success && (data.length == 0 || abi.decode(data, (bool))), "ETS-1: Token transfer failed");
+            token.call(abi.encodeWithSelector(IETS1.transfer.selector, to, amount));
+        if (!(success && (data.length == 0 || abi.decode(data, (bool))))) revert ETS1Error();
     }
 
     function _safeTokenTransferFrom(address token, address from, address to, uint256 amount) internal {
         (bool success, bytes memory data) =
-            token.call(abi.encodeWithSelector(IETS1ERC20.transferFrom.selector, from, to, amount));
-        require(success && (data.length == 0 || abi.decode(data, (bool))), "ETS-1: Token transferFrom failed");
+            token.call(abi.encodeWithSelector(IETS1.transferFrom.selector, from, to, amount));
+        if (!(success && (data.length == 0 || abi.decode(data, (bool))))) revert ETS1Error();
     }
 
     function _recordPurchase(
         address buyer,
         address paymentAsset,
         uint256 eonsAmount,
-        uint256 paymentAmount,
-        uint256 kataschaPayment,
-        uint256 foundationPayment
+        uint256 paymentAmount
     ) internal {
         uint256 purchaseId = _purchases.length;
         _purchases.push(
@@ -957,8 +1006,6 @@ contract ETS1 {
                 paymentAsset,
                 eonsAmount,
                 paymentAmount,
-                kataschaPayment,
-                foundationPayment,
                 block.timestamp
             )
         );
@@ -968,8 +1015,6 @@ contract ETS1 {
             paymentAsset,
             eonsAmount,
             paymentAmount,
-            kataschaPayment,
-            foundationPayment,
             purchaseId
         );
         _recordAssetTrace(address(0), buyer, eonsAmount, PURCHASE_ACTION, false);
@@ -980,7 +1025,7 @@ contract ETS1 {
     }
 
     function getPurchase(uint256 index) external view returns (PurchaseRecord memory) {
-        require(index < _purchases.length, "ETS-1: Invalid purchase index");
+        if (!(index < _purchases.length)) revert ETS1Error();
         return _purchases[index];
     }
 
@@ -989,7 +1034,7 @@ contract ETS1 {
         view
         returns (PurchaseRecord[] memory result)
     {
-        require(offset <= _purchases.length, "ETS-1: Offset out of range");
+        if (!(offset <= _purchases.length)) revert ETS1Error();
         uint256 remaining = _purchases.length - offset;
         uint256 count = limit < remaining ? limit : remaining;
         result = new PurchaseRecord[](count);
@@ -1008,7 +1053,7 @@ contract ETS1 {
         returns (PurchaseRecord[] memory result)
     {
         uint256[] storage indexes = _purchasesByBuyer[buyer];
-        require(offset <= indexes.length, "ETS-1: Offset out of range");
+        if (!(offset <= indexes.length)) revert ETS1Error();
         uint256 remaining = indexes.length - offset;
         uint256 count = limit < remaining ? limit : remaining;
         result = new PurchaseRecord[](count);
@@ -1016,7 +1061,7 @@ contract ETS1 {
     }
 
     // =============================================================
-    // OWNER / PAUSE / BENEFICIARY FUNCTIONS
+    // OWNER / PAUSE FUNCTIONS
     // =============================================================
 
     function owner() external view returns (address) {
@@ -1024,14 +1069,14 @@ contract ETS1 {
     }
 
     function transferOwnership(address newOwner) external onlyOwner {
-        require(newOwner != address(0), "ETS-1: Invalid new owner");
-        require(newOwner != _owner, "ETS-1: Already the owner");
+        if (!(newOwner != address(0))) revert ETS1Error();
+        if (!(newOwner != _owner)) revert ETS1Error();
         pendingOwner = newOwner;
         emit OwnershipTransferStarted(_owner, newOwner);
     }
 
     function acceptOwnership() external {
-        require(msg.sender == pendingOwner, "ETS-1: Not pending owner");
+        if (!(msg.sender == pendingOwner)) revert ETS1Error();
         address previousOwner = _owner;
         _owner = msg.sender;
         pendingOwner = address(0);
@@ -1039,22 +1084,22 @@ contract ETS1 {
     }
 
     function renounceOwnership() external onlyOwner {
-        require(!paused && !circuitBreakerTripped, "ETS-1: Cannot renounce while paused");
-        require(pendingOwner == address(0), "ETS-1: Pending ownership transfer exists");
+        if (!(!paused && !circuitBreakerTripped)) revert ETS1Error();
+        if (!(pendingOwner == address(0))) revert ETS1Error();
         address previousOwner = _owner;
         _owner = address(0);
         emit OwnershipTransferred(previousOwner, address(0));
     }
 
     function pause() external onlyOwner {
-        require(!paused, "ETS-1: Already paused");
+        if (!(!paused)) revert ETS1Error();
         paused = true;
         emit Paused(msg.sender);
     }
 
     function unpause() external onlyOwner {
-        require(paused, "ETS-1: Not paused");
-        require(!circuitBreakerTripped, "ETS-1: Reset circuit breaker first");
+        if (!(paused)) revert ETS1Error();
+        if (!(!circuitBreakerTripped)) revert ETS1Error();
         paused = false;
         emit Unpaused(msg.sender);
     }
@@ -1062,28 +1107,5 @@ contract ETS1 {
     function setContentHash(bytes32 newHash) external onlyOwner {
         emit ContentHashUpdated(contentHash, newHash);
         contentHash = newHash;
-    }
-
-    function setContent(string calldata content) external onlyOwner returns (bytes32 newHash) {
-        newHash = keccak256(bytes(content));
-        emit ContentHashUpdated(contentHash, newHash);
-        contentHash = newHash;
-    }
-
-    function setBeneficiaryWallet(uint256 index, address newWallet) external onlyOwner {
-        require(index < 2, "ETS-1: Invalid beneficiary index");
-        require(newWallet != address(0), "ETS-1: Invalid beneficiary wallet");
-        address oldWallet = _beneficiaries[index].wallet;
-        _beneficiaries[index].wallet = newWallet;
-        emit BeneficiaryWalletUpdated(index, oldWallet, newWallet);
-    }
-
-    function getBeneficiaries() external view returns (Beneficiary[2] memory) {
-        return _beneficiaries;
-    }
-
-    function getBeneficiary(uint256 index) external view returns (Beneficiary memory) {
-        require(index < 2, "ETS-1: Invalid beneficiary index");
-        return _beneficiaries[index];
     }
 }
