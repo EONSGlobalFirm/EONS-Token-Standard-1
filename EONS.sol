@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+//
 pragma solidity ^0.8.34;
 
 /**
@@ -46,10 +46,6 @@ contract ETS1 {
     // Compact replacement for long revert strings; conditions and control flow are unchanged.
     error ETS1Error();
 
-    function CORE1(bytes memory value) external pure returns (bytes32) {
-        return keccak256(value);
-    }
-
     /*
      * ETS-1 (EONS Token Standard 1)
      *
@@ -60,7 +56,6 @@ contract ETS1 {
      * - Pause / Unpause
      * - Address Blocklist
      * - Allowances
-     * - Batch Transfers
      * - Burn Function
      *
      * SECURITY
@@ -73,7 +68,7 @@ contract ETS1 {
      * COMMERCE
      * - USDC Purchases
      * - Native Coin Purchases
-     * - Automatic Revenue Splitting
+     * - All purchase proceeds belong to the contract owner
      * - Purchase History
      *
      * GOVERNANCE
@@ -83,6 +78,7 @@ contract ETS1 {
      *
      * ANALYTICS
      * - Purchase History
+     * - Supply Tracking
      * - Holder Verification
      * - Circulating Supply
      */
@@ -417,6 +413,8 @@ contract ETS1 {
     PurchaseRecord[] private _purchases;
     mapping(address => uint256[]) private _purchasesByBuyer;
     mapping(address => uint256) public nativeRefundCredit;
+    // Aggregate liability: owner withdrawals must never consume buyer refunds.
+    uint256 public totalNativeRefundCredit;
 
     event USDCConfigured(address indexed token, uint8 decimals);
     event NativePriceFeedConfigured(address indexed feed, uint8 decimals, uint256 maxAge);
@@ -506,20 +504,6 @@ contract ETS1 {
         return _transfer(msg.sender, to, amount);
     }
 
-    function batchTransfer(address[] calldata recipients, uint256[] calldata amounts)
-        external
-        notBlockedCaller
-        automaticBotThrottle
-        notPaused
-        returns (bool)
-    {
-        if (!(recipients.length == amounts.length)) revert ETS1Error();
-        for (uint256 i = 0; i < recipients.length; i++) {
-            if (!_transfer(msg.sender, recipients[i], amounts[i])) revert ETS1Error();
-        }
-        return true;
-    }
-
     function approve(address spender, uint256 amount) external notBlockedCaller notPaused returns (bool) {
         if (!(spender != address(0))) revert ETS1Error();
         _allowances[msg.sender][spender] = amount;
@@ -545,13 +529,7 @@ contract ETS1 {
         return true;
     }
 
-    function transferFrom(address from, address to, uint256 amount)
-        external
-        notBlockedCaller
-        automaticBotThrottle
-        notPaused
-        returns (bool)
-    {
+    function transferFrom(address from, address to, uint256 amount) external automaticBotThrottle notPaused returns (bool) {
         uint256 currentAllowance = _allowances[from][msg.sender];
         if (!(currentAllowance >= amount)) revert ETS1Error();
 
@@ -693,7 +671,11 @@ contract ETS1 {
     {
         if (!(recipient != address(0))) revert ETS1Error();
         if (!(amount > 0)) revert ETS1Error();
-        if (!(address(this).balance >= amount)) revert ETS1Error();
+        uint256 reservedRefunds = totalNativeRefundCredit;
+        uint256 contractBalance = address(this).balance;
+        if (!(contractBalance >= reservedRefunds)) revert ETS1Error();
+        uint256 availableProceeds = contractBalance - reservedRefunds;
+        if (!(amount <= availableProceeds)) revert ETS1Error();
         _sendNative(recipient, amount);
         emit NativeProceedsWithdrawn(recipient, amount);
         return true;
@@ -741,8 +723,7 @@ contract ETS1 {
         if (!(msg.value >= paymentAmount)) revert ETS1Error();
 
         if (!_transfer(address(this), msg.sender, eonsAmount)) {
-            nativeRefundCredit[msg.sender] += msg.value;
-            emit NativeRefundCredited(msg.sender, msg.value);
+            _creditNativeRefund(msg.sender, msg.value);
             return false;
         }
 
@@ -753,24 +734,28 @@ contract ETS1 {
             paymentAmount
         );
 
+        // Keep all overpayment as a claimable refund liability. This avoids
+        // making purchase success depend on the buyer accepting a native transfer.
         uint256 excess = msg.value - paymentAmount;
-        if (excess > 0) {
-            (bool refunded, ) = payable(msg.sender).call{value: excess}("");
-            if (!refunded) {
-                nativeRefundCredit[msg.sender] += excess;
-                emit NativeRefundCredited(msg.sender, excess);
-            }
-        }
+        if (excess > 0) _creditNativeRefund(msg.sender, excess);
         return true;
     }
 
-    function withdrawNativeRefund() external notBlockedCaller nonReentrant {
+    function withdrawNativeRefund() external nonReentrant {
         uint256 amount = nativeRefundCredit[msg.sender];
         if (!(amount > 0)) revert ETS1Error();
         nativeRefundCredit[msg.sender] = 0;
+        totalNativeRefundCredit -= amount;
         (bool success, ) = payable(msg.sender).call{value: amount}("");
         if (!(success)) revert ETS1Error();
         emit NativeRefundWithdrawn(msg.sender, amount);
+    }
+
+    function _creditNativeRefund(address account, uint256 amount) internal {
+        if (account == address(0) || amount == 0) revert ETS1Error();
+        nativeRefundCredit[account] += amount;
+        totalNativeRefundCredit += amount;
+        emit NativeRefundCredited(account, amount);
     }
 
     function _sendNative(address recipient, uint256 amount) internal {
