@@ -1,6 +1,7 @@
 //
 pragma solidity ^0.8.34;
-
+// Copyright (c) 2026 Katascha White
+// All Rights Reserved.
 /**
  * @title ETS-1 — EONS Token Standard 1 is a Fungible Token Standard With Customizable Actions
  * @author Katascha White (Katascha.White@outlook.com) @dev yahoo handle since 2003
