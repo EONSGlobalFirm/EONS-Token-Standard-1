@@ -83,7 +83,6 @@ contract ETS1 {
      *
      * ANALYTICS
      * - Purchase History
-     * - Supply Tracking
      * - Holder Verification
      * - Circulating Supply
      */
