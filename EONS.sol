@@ -516,7 +516,7 @@ contract ETS1 {
     {
         if (!(recipients.length == amounts.length)) revert ETS1Error();
         for (uint256 i = 0; i < recipients.length; i++) {
-            if (!_transfer(msg.sender, recipients[i], amounts[i])) return false;
+            if (!_transfer(msg.sender, recipients[i], amounts[i])) revert ETS1Error();
         }
         return true;
     }
@@ -546,7 +546,13 @@ contract ETS1 {
         return true;
     }
 
-    function transferFrom(address from, address to, uint256 amount) external automaticBotThrottle notPaused returns (bool) {
+    function transferFrom(address from, address to, uint256 amount)
+        external
+        notBlockedCaller
+        automaticBotThrottle
+        notPaused
+        returns (bool)
+    {
         uint256 currentAllowance = _allowances[from][msg.sender];
         if (!(currentAllowance >= amount)) revert ETS1Error();
 
@@ -900,4 +906,3 @@ contract ETS1 {
         contentHash = newHash;
     }
 }
-AUTHOR: KATASCHA WHITE
