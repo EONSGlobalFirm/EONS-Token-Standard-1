@@ -18,7 +18,6 @@ pragma solidity ^0.8.34;
  * - Emergency Global pause mechanism
  * - Circuit breaker (auto-pause on large or rate-limited transfers)access for all token holders
  * - Customizable action registry
- * - Asset trace history/logging
  */
 interface IETS1 {
     function transfer(address to, uint256 amount) external returns (bool);
